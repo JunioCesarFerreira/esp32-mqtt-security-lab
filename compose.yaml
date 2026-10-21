@@ -30,6 +30,23 @@ services:
     networks:
       - mqttnet
 
+  device-simulator:
+    build: ./simulator
+    container_name: mqtt-device-simulator
+    restart: unless-stopped
+    depends_on:
+      - broker
+    env_file:
+      - ./simulator/.env
+    environment:
+      # Número de dispositivos simulados (cada um em sua própria thread),
+      # sobrescrevível com: SIM_DEVICE_COUNT=20 docker compose up -d
+      - SIM_DEVICE_COUNT=${SIM_DEVICE_COUNT:-5}
+    volumes:
+      - ./mosquitto/certs/ca.crt:/certs/ca.crt:ro
+    networks:
+      - mqttnet
+
 networks:
   mqttnet:
     driver: bridge

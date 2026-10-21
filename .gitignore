@@ -9,6 +9,7 @@ mosquitto/log/*
 mosquitto/config/passwd
 
 subscriber/.env
+simulator/.env
 
 esp32/secrets.h
 esp32/ca_cert.h
