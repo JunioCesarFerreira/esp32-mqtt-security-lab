@@ -1,0 +1,35 @@
+services:
+  broker:
+    image: eclipse-mosquitto:2.0.18
+    container_name: mqtt-broker
+    restart: unless-stopped
+    # Roda com o UID/GID do host (definidos em .env por setup.sh) para que o
+    # entrypoint da imagem não faça "chown -R" em /mosquitto e troque o
+    # dono dos arquivos de config/certs/dados para um uid do container.
+    user: "${UID}:${GID}"
+    ports:
+      - "8883:8883"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - ./mosquitto/certs:/mosquitto/certs:ro
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+    networks:
+      - mqttnet
+
+  subscriber:
+    build: ./subscriber
+    container_name: mqtt-subscriber
+    restart: unless-stopped
+    depends_on:
+      - broker
+    env_file:
+      - ./subscriber/.env
+    volumes:
+      - ./mosquitto/certs/ca.crt:/certs/ca.crt:ro
+    networks:
+      - mqttnet
+
+networks:
+  mqttnet:
+    driver: bridge
