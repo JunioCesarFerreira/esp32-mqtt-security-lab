@@ -6,9 +6,14 @@ com três camadas independentes de proteção.
 ## 1. Arquitetura
 
 O ESP32 publica pela rede Wi-Fi para um broker Mosquitto rodando em Docker.
-Os serviços `broker`, `subscriber`, `device-simulator` e `attacker`
-compartilham uma rede Docker privada (`mqttnet`); apenas a porta MQTT/TLS
-(`8883`) do broker é exposta à rede local, para o ESP32 alcançar.
+Os serviços `broker`, `subscriber`, `device-simulator`, `attacker` e
+`dashboard` compartilham uma rede Docker privada (`mqttnet`); a porta MQTT/TLS
+(`8883`) do broker é exposta à rede local (para o ESP32 alcançar) e a porta
+HTTP do painel (`8080` por padrão) é exposta para o navegador.
+
+Um serviço `dashboard` oferece uma interface web (http://localhost:8080) para
+acompanhar todas as mensagens em tempo real e controlar o laboratório — por
+exemplo, ligar e desligar o `attacker` com um clique.
 
 Além do ESP32 físico, um serviço `device-simulator` publica dados de N
 dispositivos simulados (cada um em sua própria thread, assinando os dados do
@@ -33,9 +38,9 @@ Três camadas de segurança, independentes entre si:
 ## 2. Estrutura do repositório
 
 ```
-compose.yaml                  # serviços broker + subscriber + device-simulator + attacker
+compose.yaml                  # broker + subscriber + device-simulator + attacker + dashboard
 setup.sh                      # gera certificados, credenciais e chave HMAC
-.env                           # UID/GID do host e SIM_DEVICE_COUNT (gerado, não versionado)
+.env                           # UID/GID, SIM_DEVICE_COUNT, DASHBOARD_PORT (gerado, não versionado)
 mosquitto/
   config/mosquitto.conf       # listener TLS, auth, ACL
   config/acl.conf             # permissões por usuário MQTT
@@ -54,6 +59,11 @@ attacker/
   Dockerfile, requirements.txt
   attacker.py                   # intercepta e tenta tamper/forjar/repetir mensagens
   .env                           # gerado por setup.sh (não versionado, sem a chave HMAC real)
+dashboard/
+  Dockerfile, requirements.txt
+  app.py                         # backend Flask: monitora via MQTT, stream SSE, controla o atacante
+  index.html                     # painel web (feed ao vivo, estatísticas, toggle do atacante)
+  .env                           # gerado por setup.sh (não versionado)
 esp32/
   esp32.ino                    # firmware (WiFi + TLS + HMAC-SHA256 via mbedtls)
   secrets.h.example             # modelo de referência
@@ -78,12 +88,14 @@ Supondo `192.168.1.50`, na raiz do projeto:
 O script gera:
 
 - CA própria e certificado TLS do broker com SAN para esse IP;
-- quatro usuários MQTT (`esp32-01` e `simulator` para publicar,
-  `subscriber` para assinar, `attacker` com ACL deliberadamente ampla para
-  o laboratório de ataque), com senhas aleatórias;
+- cinco usuários MQTT (`esp32-01` e `simulator` para publicar,
+  `subscriber` para assinar, `dashboard` para monitorar/controlar, e
+  `attacker` com ACL deliberadamente ampla para o laboratório de ataque),
+  com senhas aleatórias;
 - uma chave HMAC-SHA256 aleatória (32 bytes), compartilhada entre o firmware
-  do ESP32 (`esp32/secrets.h`), o simulador (`simulator/.env`) e o consumidor
-  (`subscriber/.env`) — o broker e o `attacker` nunca a recebem.
+  do ESP32 (`esp32/secrets.h`), o simulador (`simulator/.env`), o consumidor
+  (`subscriber/.env`) e o painel (`dashboard/.env`) — o broker e o `attacker`
+  nunca a recebem.
 
 Edite o SSID e a senha do Wi-Fi em `esp32/secrets.h` (gerado pelo script).
 
@@ -93,10 +105,13 @@ Suba os containers:
 docker compose up -d --build
 ```
 
+Abra o painel no navegador: **http://localhost:8080**. Ele mostra as mensagens
+em tempo real e tem um botão para ligar/desligar o atacante (veja a seção 5).
+
 No Arduino IDE, abra `esp32/esp32.ino`, instale a biblioteca `PubSubClient`,
 selecione sua placa ESP32 e grave o firmware.
 
-Para acompanhar as mensagens validadas:
+Para acompanhar as mensagens validadas também pelo terminal:
 
 ```bash
 docker compose logs -f subscriber
@@ -139,9 +154,10 @@ SIM_DEVICE_COUNT=20 docker compose up -d
 
 O serviço `attacker` simula um cliente que já comprometeu um dispositivo com
 credenciais MQTT válidas e uma ACL ampla (`sensors/#`, leitura e escrita —
-veja `mosquitto/config/acl.conf`). Ele se conecta normalmente via TLS,
-assina e intercepta todas as mensagens publicadas por `esp32-01` e pelo
-`device-simulator`, e para cada mensagem interceptada tenta três ataques,
+veja `mosquitto/config/acl.conf`). Ele **começa inativo** e só ataca quando
+ligado pelo painel (seção 6), que publica no tópico de controle
+`control/attacker`. Quando ativo, intercepta todas as mensagens publicadas
+por `esp32-01` e pelo `device-simulator` e, para cada uma, tenta três ataques,
 publicando de volta no mesmo tópico da vítima:
 
 1. **Adulteração (tamper)** — altera a temperatura mas mantém o HMAC
@@ -169,7 +185,41 @@ pior caso (cliente totalmente comprometido) para provar que a defesa real
 está na camada de aplicação (HMAC + sequência), não apenas no broker. Nunca
 reproduza essa ACL fora deste laboratório.
 
-## 6. Cuidados com a rede
+## 6. Painel web (`dashboard`)
+
+Abra **http://localhost:8080** depois de subir os containers. O painel é um
+container próprio (`dashboard`) com backend Flask + MQTT e um frontend web,
+pensado para ser visual e fácil de usar:
+
+- **Toggle do atacante** — um botão liga/desliga o agente malicioso em tempo
+  real. Quando ativo, aparece um alerta vermelho no topo (`ATACANTE ATIVO`).
+- **Estatísticas** — contadores de mensagens válidas, adulteradas, forjadas e
+  de replay.
+- **Dispositivos** — um cartão por dispositivo com a última temperatura, o
+  último `seq` e um indicador verde/vermelho do último veredito.
+- **Eventos ao vivo** — uma lista rolante, colorida por tipo, mostrando cada
+  mensagem recebida e o motivo de aceitação ou rejeição.
+
+Como funciona por baixo: o backend assina MQTT (`sensors/#`), refaz a mesma
+validação HMAC + sequência do `subscriber` e transmite cada veredito ao
+navegador via **SSE** (Server-Sent Events). O botão do atacante faz um
+`POST /api/attacker`, que publica `{"active": true|false}` (retido) em
+`control/attacker`; o `attacker` reage e publica seu estado em
+`control/attacker/status`, que o painel lê de volta para manter o botão
+sincronizado — inclusive após recarregar a página ou reiniciar um container.
+
+A porta do host é configurável pela variável `DASHBOARD_PORT` no `.env` da
+raiz (padrão `8080`). Se a `8080` já estiver em uso, troque o valor:
+
+```bash
+# no .env da raiz
+DASHBOARD_PORT=8088
+
+# ou na hora de subir
+DASHBOARD_PORT=8088 docker compose up -d
+```
+
+## 7. Cuidados com a rede
 
 - O ESP32 deve acessar o **IP** do computador que hospeda o Docker — nunca
   `localhost` nem o IP interno de um container. A rede Wi-Fi precisa permitir
@@ -180,7 +230,7 @@ reproduza essa ACL fora deste laboratório.
 - O firmware carrega a CA correspondente (`esp32/ca_cert.h`) e valida o
   certificado do broker — a validação criptográfica não é desabilitada.
 
-## 7. Modelo de assinatura HMAC
+## 8. Modelo de assinatura HMAC
 
 O ESP32 assina a string `"<device>|<seq>|<temperatura>"` (temperatura já
 formatada com duas casas decimais) usando HMAC-SHA256 com a chave

@@ -22,8 +22,14 @@ MQTT_USER = os.environ["MQTT_USER"]
 MQTT_PASSWORD = os.environ["MQTT_PASSWORD"]
 SNIFF_TOPIC = os.environ.get("ATTACKER_SNIFF_TOPIC", "sensors/#")
 REPLAY_DELAY_SECONDS = float(os.environ.get("ATTACKER_REPLAY_DELAY_SECONDS", "3"))
+CONTROL_TOPIC = os.environ.get("ATTACKER_CONTROL_TOPIC", "control/attacker")
+STATUS_TOPIC = CONTROL_TOPIC + "/status"
 
 CA_CERT_PATH = "/certs/ca.crt"
+
+# Começa inativo: só passa a atacar quando o dashboard publica em CONTROL_TOPIC.
+_active_lock = threading.Lock()
+active = False
 
 # O atacante NUNCA recebe a chave HMAC real - usa uma chave própria, gerada
 # aleatoriamente, para simular uma tentativa de forjar assinaturas sem
@@ -54,15 +60,41 @@ def fake_sign(device: str, seq, temp: str) -> str:
     return hmac.new(FAKE_HMAC_KEY, message, hashlib.sha256).hexdigest()
 
 
+def publish_status(client):
+    with _active_lock:
+        a = active
+    client.publish(STATUS_TOPIC, json.dumps({"active": a}), qos=1, retain=True)
+
+
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
-        print(f"[ATACANTE] conectado - interceptando '{SNIFF_TOPIC}'", flush=True)
+        print(f"[ATACANTE] conectado - interceptando '{SNIFF_TOPIC}' (aguardando ativação)", flush=True)
         client.subscribe(SNIFF_TOPIC)
+        client.subscribe(CONTROL_TOPIC)
+        publish_status(client)
     else:
         print(f"[ATACANTE] falha ao conectar, rc={rc}", flush=True)
 
 
 def on_message(client, userdata, msg):
+    global active
+
+    if msg.topic == CONTROL_TOPIC:
+        try:
+            cmd = json.loads(msg.payload.decode())
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return
+        with _active_lock:
+            active = bool(cmd.get("active", False))
+            now = active
+        print(f"[CONTROLE] atacante {'ATIVADO' if now else 'desativado'}", flush=True)
+        publish_status(client)
+        return
+
+    with _active_lock:
+        if not active:
+            return
+
     raw = msg.payload
 
     try:

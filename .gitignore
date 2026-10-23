@@ -11,6 +11,7 @@ mosquitto/config/passwd
 subscriber/.env
 simulator/.env
 attacker/.env
+dashboard/.env
 
 esp32/secrets.h
 esp32/ca_cert.h

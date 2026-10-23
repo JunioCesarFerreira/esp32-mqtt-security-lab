@@ -18,6 +18,7 @@ ESP32_DIR="$ROOT_DIR/esp32"
 SUBSCRIBER_DIR="$ROOT_DIR/subscriber"
 SIMULATOR_DIR="$ROOT_DIR/simulator"
 ATTACKER_DIR="$ROOT_DIR/attacker"
+DASHBOARD_DIR="$ROOT_DIR/dashboard"
 
 MOSQUITTO_IMAGE="eclipse-mosquitto:2.0.18"
 DEVICE_ID="esp32-01"
@@ -25,17 +26,19 @@ MQTT_PUBLISHER_USER="$DEVICE_ID"
 MQTT_SUBSCRIBER_USER="subscriber"
 MQTT_SIMULATOR_USER="simulator"
 MQTT_ATTACKER_USER="attacker"
+MQTT_DASHBOARD_USER="dashboard"
 
 HOST_UID="$(id -u)"
 HOST_GID="$(id -g)"
 
-mkdir -p "$CERTS_DIR" "$CONFIG_DIR" "$ESP32_DIR" "$SUBSCRIBER_DIR" "$SIMULATOR_DIR" "$ATTACKER_DIR"
+mkdir -p "$CERTS_DIR" "$CONFIG_DIR" "$ESP32_DIR" "$SUBSCRIBER_DIR" "$SIMULATOR_DIR" "$ATTACKER_DIR" "$DASHBOARD_DIR"
 
-echo "==> Escrevendo $ROOT_DIR/.env (UID/GID do host e nº de dispositivos simulados)"
+echo "==> Escrevendo $ROOT_DIR/.env (UID/GID do host, nº de dispositivos e porta do painel)"
 cat > "$ROOT_DIR/.env" <<EOF
 UID=$HOST_UID
 GID=$HOST_GID
 SIM_DEVICE_COUNT=5
+DASHBOARD_PORT=8080
 EOF
 
 echo "==> Gerando CA e certificado do broker para IP $HOST_IP"
@@ -69,6 +72,7 @@ MQTT_PUBLISHER_PASS="$(openssl rand -base64 18)"
 MQTT_SUBSCRIBER_PASS="$(openssl rand -base64 18)"
 MQTT_SIMULATOR_PASS="$(openssl rand -base64 18)"
 MQTT_ATTACKER_PASS="$(openssl rand -base64 18)"
+MQTT_DASHBOARD_PASS="$(openssl rand -base64 18)"
 
 rm -f "$CONFIG_DIR/passwd"
 docker run --rm --user "$HOST_UID:$HOST_GID" -v "$CONFIG_DIR:/out" "$MOSQUITTO_IMAGE" \
@@ -79,6 +83,8 @@ docker run --rm --user "$HOST_UID:$HOST_GID" -v "$CONFIG_DIR:/out" "$MOSQUITTO_I
   sh -c "mosquitto_passwd -b /out/passwd '$MQTT_SIMULATOR_USER' '$MQTT_SIMULATOR_PASS'"
 docker run --rm --user "$HOST_UID:$HOST_GID" -v "$CONFIG_DIR:/out" "$MOSQUITTO_IMAGE" \
   sh -c "mosquitto_passwd -b /out/passwd '$MQTT_ATTACKER_USER' '$MQTT_ATTACKER_PASS'"
+docker run --rm --user "$HOST_UID:$HOST_GID" -v "$CONFIG_DIR:/out" "$MOSQUITTO_IMAGE" \
+  sh -c "mosquitto_passwd -b /out/passwd '$MQTT_DASHBOARD_USER' '$MQTT_DASHBOARD_PASS'"
 
 echo "==> Gerando chave HMAC-SHA256 compartilhada (broker não a conhece)"
 HMAC_KEY_HEX="$(openssl rand -hex 32)"
@@ -115,6 +121,19 @@ MQTT_USER=$MQTT_ATTACKER_USER
 MQTT_PASSWORD=$MQTT_ATTACKER_PASS
 ATTACKER_SNIFF_TOPIC=sensors/#
 ATTACKER_REPLAY_DELAY_SECONDS=3
+ATTACKER_CONTROL_TOPIC=control/attacker
+EOF
+
+echo "==> Escrevendo $DASHBOARD_DIR/.env"
+cat > "$DASHBOARD_DIR/.env" <<EOF
+MQTT_HOST=broker
+MQTT_PORT=8883
+MQTT_USER=$MQTT_DASHBOARD_USER
+MQTT_PASSWORD=$MQTT_DASHBOARD_PASS
+HMAC_KEY_HEX=$HMAC_KEY_HEX
+SENSOR_TOPIC=sensors/#
+ATTACKER_CONTROL_TOPIC=control/attacker
+HTTP_PORT=8080
 EOF
 
 echo "==> Escrevendo $ESP32_DIR/secrets.h"
@@ -153,4 +172,5 @@ echo
 echo "Setup concluído."
 echo "  1. Edite $ESP32_DIR/secrets.h com o SSID/senha do Wi-Fi"
 echo "  2. docker compose up -d --build"
-echo "  3. Grave esp32/esp32.ino no ESP32 (Arduino IDE + biblioteca PubSubClient)"
+echo "  3. Abra o painel em http://localhost:8080 para monitorar e ativar o atacante"
+echo "  4. Grave esp32/esp32.ino no ESP32 (Arduino IDE + biblioteca PubSubClient)"

@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ESP32 MQTT Security Lab</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel2: #1c232d;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --orange: #d29922;
+    --purple: #bc8cff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; flex-wrap: wrap; margin-bottom: 16px;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .logo { font-size: 32px; }
+  header h1 { font-size: 20px; margin: 0; }
+  header .sub { margin: 0; color: var(--muted); font-size: 13px; }
+  .conn { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); transition: background .2s; }
+  .dot.on { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .dot.off { background: var(--red); }
+
+  .attack-banner {
+    background: linear-gradient(90deg, rgba(248,81,73,.18), rgba(248,81,73,.06));
+    border: 1px solid var(--red);
+    color: #ffb4b0;
+    border-radius: 10px; padding: 12px 16px; margin-bottom: 16px;
+    font-weight: 600; letter-spacing: .3px;
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(248,81,73,.35); } 50% { box-shadow: 0 0 0 6px rgba(248,81,73,0); } }
+  .hidden { display: none; }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px;
+  }
+  h2 { font-size: 15px; margin: 0 0 4px; }
+  .muted { color: var(--muted); font-size: 13px; margin: 0; }
+
+  .control {
+    display: flex; align-items: center; gap: 20px; margin-bottom: 16px;
+  }
+  .control > div:first-child { flex: 1; min-width: 0; }
+  .switch { position: relative; display: inline-block; width: 64px; height: 34px; flex: none; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider {
+    position: absolute; cursor: pointer; inset: 0;
+    background: #2d333b; border: 1px solid var(--border);
+    border-radius: 34px; transition: .25s;
+  }
+  .slider::before {
+    content: ""; position: absolute; height: 24px; width: 24px;
+    left: 4px; bottom: 4px; background: #c9d1d9; border-radius: 50%; transition: .25s;
+  }
+  input:checked + .slider { background: var(--red); border-color: var(--red); }
+  input:checked + .slider::before { transform: translateX(30px); background: #fff; }
+  .switch-state {
+    font-weight: 700; font-size: 13px; letter-spacing: .5px; min-width: 76px;
+    text-align: center; color: var(--muted); flex: none;
+  }
+  .switch-state.active { color: var(--red); }
+
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+  .tile {
+    background: var(--panel); border: 1px solid var(--border);
+    border-left-width: 4px; border-radius: 10px; padding: 14px 16px;
+  }
+  .tile .num { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .tile .lbl { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
+  .tile.valid { border-left-color: var(--green); }
+  .tile.valid .num { color: var(--green); }
+  .tile.tamper { border-left-color: var(--red); }
+  .tile.tamper .num { color: var(--red); }
+  .tile.forged { border-left-color: var(--purple); }
+  .tile.forged .num { color: var(--purple); }
+  .tile.replay { border-left-color: var(--orange); }
+  .tile.replay .num { color: var(--orange); }
+
+  section.block { margin-bottom: 16px; }
+  .devices { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .dev {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px;
+  }
+  .dev-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .dev-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dev-dot.valid { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .dev-dot.bad { background: var(--red); box-shadow: 0 0 6px var(--red); }
+  .dev-id { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dev-temp { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .dev-meta { color: var(--muted); font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+  .feed {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; max-height: 420px; overflow-y: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;
+  }
+  .row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 7px 12px; border-bottom: 1px solid var(--border); border-left: 3px solid transparent;
+  }
+  .row:last-child { border-bottom: none; }
+  .row.VALIDA { border-left-color: var(--green); }
+  .row.REJEITADA { border-left-color: var(--red); background: rgba(248,81,73,.05); }
+  .row.REJEITADA.replay { border-left-color: var(--orange); background: rgba(210,153,34,.05); }
+  .row.REJEITADA.forged { border-left-color: var(--purple); background: rgba(188,140,255,.05); }
+  .row.DESCARTADA { border-left-color: var(--muted); }
+  .row.system { border-left-color: var(--accent); color: var(--accent); }
+  .time { color: var(--muted); flex: none; }
+  .badge {
+    flex: none; padding: 1px 8px; border-radius: 20px; font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .4px;
+  }
+  .badge.VALIDA { background: rgba(63,185,80,.15); color: var(--green); }
+  .badge.tamper { background: rgba(248,81,73,.15); color: var(--red); }
+  .badge.forged { background: rgba(188,140,255,.15); color: var(--purple); }
+  .badge.replay { background: rgba(210,153,34,.15); color: var(--orange); }
+  .badge.DESCARTADA { background: rgba(139,148,158,.15); color: var(--muted); }
+  .row .dev { color: var(--text); flex: none; min-width: 112px; }
+  .row .detail { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; color: var(--muted); font-size: 12px; margin-top: 8px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+  @media (max-width: 680px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .row .dev { min-width: 90px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <span class="logo">🔐</span>
+      <div>
+        <h1>ESP32 MQTT Security Lab</h1>
+        <p class="sub">Painel de controle e monitoramento</p>
+      </div>
+    </div>
+    <div class="conn"><span id="dot" class="dot"></span><span id="connText">conectando…</span></div>
+  </header>
+
+  <div id="attackBanner" class="attack-banner hidden">⚠ ATACANTE ATIVO — injetando mensagens maliciosas na rede</div>
+
+  <section class="card control block">
+    <div>
+      <h2>Agente malicioso</h2>
+      <p class="muted">Intercepta as mensagens dos dispositivos e tenta adulterá-las, forjá-las e repeti-las (replay). Todas devem ser rejeitadas pelo consumidor.</p>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="attackerToggle">
+      <span class="slider"></span>
+    </label>
+    <div class="switch-state" id="switchState">INATIVO</div>
+  </section>
+
+  <section class="stats">
+    <div class="tile valid"><div class="num" id="cValid">0</div><div class="lbl">Válidas</div></div>
+    <div class="tile tamper"><div class="num" id="cTamper">0</div><div class="lbl">Adulteradas</div></div>
+    <div class="tile forged"><div class="num" id="cForged">0</div><div class="lbl">Forjadas</div></div>
+    <div class="tile replay"><div class="num" id="cReplay">0</div><div class="lbl">Replay</div></div>
+  </section>
+
+  <section class="block">
+    <h2>Dispositivos</h2>
+    <div id="devices" class="devices"></div>
+  </section>
+
+  <section class="block">
+    <h2>Eventos ao vivo</h2>
+    <div id="feed" class="feed"></div>
+    <div class="legend">
+      <span><i style="background:var(--green)"></i> válida</span>
+      <span><i style="background:var(--red)"></i> adulterada</span>
+      <span><i style="background:var(--purple)"></i> forjada</span>
+      <span><i style="background:var(--orange)"></i> replay</span>
+    </div>
+  </section>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const counts = { VALIDA: 0, tamper: 0, forged: 0, replay: 0 };
+  const devices = {};
+  const MAX_ROWS = 250;
+  let suppressToggle = false;
+
+  const toggle = $("attackerToggle");
+  toggle.addEventListener("change", () => {
+    if (suppressToggle) return;
+    fetch("/api/attacker", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ active: toggle.checked }),
+    }).catch(() => {});
+  });
+
+  function setConn(ok) {
+    $("dot").className = "dot " + (ok ? "on" : "off");
+    $("connText").textContent = ok ? "conectado" : "reconectando…";
+  }
+
+  function setAttacker(active) {
+    suppressToggle = true;
+    toggle.checked = active;
+    suppressToggle = false;
+    $("switchState").textContent = active ? "ATIVO" : "INATIVO";
+    $("switchState").className = "switch-state" + (active ? " active" : "");
+    $("attackBanner").className = "attack-banner" + (active ? "" : " hidden");
+  }
+
+  function fmtTime(ts) {
+    const d = ts ? new Date(ts * 1000) : new Date();
+    return d.toLocaleTimeString("pt-BR", { hour12: false });
+  }
+
+  function badgeFor(ev) {
+    if (ev.status === "VALIDA") return { cls: "VALIDA", text: "válida" };
+    if (ev.status === "DESCARTADA") return { cls: "DESCARTADA", text: "descartada" };
+    if (ev.attackKind === "replay") return { cls: "replay", text: "replay" };
+    if (ev.attackKind === "forged") return { cls: "forged", text: "forjada" };
+    return { cls: "tamper", text: "adulterada" };
+  }
+
+  function bump(ev) {
+    if (ev.status === "VALIDA") counts.VALIDA++;
+    else if (ev.attackKind === "replay") counts.replay++;
+    else if (ev.attackKind === "forged") counts.forged++;
+    else if (ev.status === "REJEITADA") counts.tamper++;
+    $("cValid").textContent = counts.VALIDA;
+    $("cTamper").textContent = counts.tamper;
+    $("cForged").textContent = counts.forged;
+    $("cReplay").textContent = counts.replay;
+  }
+
+  function updateDevice(ev) {
+    if (!ev.device) return;
+    let card = devices[ev.device];
+    if (!card) {
+      card = document.createElement("div");
+      card.className = "dev";
+      card.innerHTML =
+        '<div class="dev-head"><span class="dev-dot"></span><span class="dev-id"></span></div>' +
+        '<div class="dev-temp">—</div><div class="dev-meta"></div>';
+      card.querySelector(".dev-id").textContent = ev.device;
+      $("devices").appendChild(card);
+      devices[ev.device] = card;
+    }
+    const ok = ev.status === "VALIDA";
+    card.querySelector(".dev-dot").className = "dev-dot " + (ok ? "valid" : "bad");
+    if (ok && ev.temp != null) card.querySelector(".dev-temp").textContent = Number(ev.temp).toFixed(2) + " °C";
+    card.querySelector(".dev-meta").textContent = "seq " + (ev.seq ?? "—") + " · " + ev.status.toLowerCase();
+  }
+
+  function addRow(cls, time, badge, dev, detail) {
+    const feed = $("feed");
+    const row = document.createElement("div");
+    row.className = "row " + cls;
+    row.innerHTML =
+      '<span class="time"></span>' +
+      (badge ? '<span class="badge ' + badge.cls + '"></span>' : "") +
+      '<span class="dev"></span><span class="detail"></span>';
+    row.querySelector(".time").textContent = time;
+    if (badge) row.querySelector(".badge").textContent = badge.text;
+    row.querySelector(".dev").textContent = dev;
+    row.querySelector(".detail").textContent = detail;
+    feed.insertBefore(row, feed.firstChild);
+    while (feed.childElementCount > MAX_ROWS) feed.removeChild(feed.lastChild);
+  }
+
+  function onMessage(ev) {
+    bump(ev);
+    updateDevice(ev);
+    const badge = badgeFor(ev);
+    const cls = ev.status + (ev.attackKind === "replay" ? " replay" : ev.attackKind === "forged" ? " forged" : "");
+    const t = ev.temp != null ? Number(ev.temp).toFixed(2) + " °C" : "—";
+    const detail = "seq " + (ev.seq ?? "—") + " · " + t + " · " + ev.reason;
+    addRow(cls, fmtTime(ev.ts), badge, ev.device || "?", detail);
+  }
+
+  function addSystem(msg, ts) {
+    addRow("system", fmtTime(ts), null, "sistema", msg);
+  }
+
+  function handle(ev) {
+    if (ev.type === "hello") setAttacker(ev.attackerActive);
+    else if (ev.type === "attacker") { setAttacker(ev.active); addSystem(ev.active ? "Atacante ATIVADO" : "Atacante desativado", ev.ts); }
+    else if (ev.type === "system") addSystem(ev.message, ev.ts);
+    else if (ev.type === "message") onMessage(ev);
+  }
+
+  function connect() {
+    const es = new EventSource("/events");
+    es.onopen = () => setConn(true);
+    es.onerror = () => setConn(false);
+    es.onmessage = (e) => { try { handle(JSON.parse(e.data)); } catch (_) {} };
+  }
+  connect();
+</script>
+</body>
+</html>
