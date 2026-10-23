@@ -10,6 +10,7 @@ mosquitto/config/passwd
 
 subscriber/.env
 simulator/.env
+attacker/.env
 
 esp32/secrets.h
 esp32/ca_cert.h

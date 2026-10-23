@@ -17,17 +17,19 @@ CONFIG_DIR="$ROOT_DIR/mosquitto/config"
 ESP32_DIR="$ROOT_DIR/esp32"
 SUBSCRIBER_DIR="$ROOT_DIR/subscriber"
 SIMULATOR_DIR="$ROOT_DIR/simulator"
+ATTACKER_DIR="$ROOT_DIR/attacker"
 
 MOSQUITTO_IMAGE="eclipse-mosquitto:2.0.18"
 DEVICE_ID="esp32-01"
 MQTT_PUBLISHER_USER="$DEVICE_ID"
 MQTT_SUBSCRIBER_USER="subscriber"
 MQTT_SIMULATOR_USER="simulator"
+MQTT_ATTACKER_USER="attacker"
 
 HOST_UID="$(id -u)"
 HOST_GID="$(id -g)"
 
-mkdir -p "$CERTS_DIR" "$CONFIG_DIR" "$ESP32_DIR" "$SUBSCRIBER_DIR" "$SIMULATOR_DIR"
+mkdir -p "$CERTS_DIR" "$CONFIG_DIR" "$ESP32_DIR" "$SUBSCRIBER_DIR" "$SIMULATOR_DIR" "$ATTACKER_DIR"
 
 echo "==> Escrevendo $ROOT_DIR/.env (UID/GID do host e nº de dispositivos simulados)"
 cat > "$ROOT_DIR/.env" <<EOF
@@ -66,6 +68,7 @@ echo "==> Gerando credenciais MQTT (usuário/senha)"
 MQTT_PUBLISHER_PASS="$(openssl rand -base64 18)"
 MQTT_SUBSCRIBER_PASS="$(openssl rand -base64 18)"
 MQTT_SIMULATOR_PASS="$(openssl rand -base64 18)"
+MQTT_ATTACKER_PASS="$(openssl rand -base64 18)"
 
 rm -f "$CONFIG_DIR/passwd"
 docker run --rm --user "$HOST_UID:$HOST_GID" -v "$CONFIG_DIR:/out" "$MOSQUITTO_IMAGE" \
@@ -74,6 +77,8 @@ docker run --rm --user "$HOST_UID:$HOST_GID" -v "$CONFIG_DIR:/out" "$MOSQUITTO_I
   sh -c "mosquitto_passwd -b /out/passwd '$MQTT_SUBSCRIBER_USER' '$MQTT_SUBSCRIBER_PASS'"
 docker run --rm --user "$HOST_UID:$HOST_GID" -v "$CONFIG_DIR:/out" "$MOSQUITTO_IMAGE" \
   sh -c "mosquitto_passwd -b /out/passwd '$MQTT_SIMULATOR_USER' '$MQTT_SIMULATOR_PASS'"
+docker run --rm --user "$HOST_UID:$HOST_GID" -v "$CONFIG_DIR:/out" "$MOSQUITTO_IMAGE" \
+  sh -c "mosquitto_passwd -b /out/passwd '$MQTT_ATTACKER_USER' '$MQTT_ATTACKER_PASS'"
 
 echo "==> Gerando chave HMAC-SHA256 compartilhada (broker não a conhece)"
 HMAC_KEY_HEX="$(openssl rand -hex 32)"
@@ -98,6 +103,18 @@ HMAC_KEY_HEX=$HMAC_KEY_HEX
 SIM_DEVICE_PREFIX=esp32-sim
 SIM_TOPIC_PREFIX=sensors/sim
 SIM_PUBLISH_INTERVAL_SECONDS=5
+EOF
+
+echo "==> Escrevendo $ATTACKER_DIR/.env"
+# Propositalmente SEM HMAC_KEY_HEX: o agente malicioso não recebe a chave
+# real, só credenciais MQTT válidas (para simular um cliente comprometido).
+cat > "$ATTACKER_DIR/.env" <<EOF
+MQTT_HOST=broker
+MQTT_PORT=8883
+MQTT_USER=$MQTT_ATTACKER_USER
+MQTT_PASSWORD=$MQTT_ATTACKER_PASS
+ATTACKER_SNIFF_TOPIC=sensors/#
+ATTACKER_REPLAY_DELAY_SECONDS=3
 EOF
 
 echo "==> Escrevendo $ESP32_DIR/secrets.h"

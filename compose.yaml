@@ -47,6 +47,19 @@ services:
     networks:
       - mqttnet
 
+  attacker:
+    build: ./attacker
+    container_name: mqtt-attacker
+    restart: unless-stopped
+    depends_on:
+      - broker
+    env_file:
+      - ./attacker/.env
+    volumes:
+      - ./mosquitto/certs/ca.crt:/certs/ca.crt:ro
+    networks:
+      - mqttnet
+
 networks:
   mqttnet:
     driver: bridge

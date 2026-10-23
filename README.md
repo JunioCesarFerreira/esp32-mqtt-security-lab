@@ -6,14 +6,20 @@ com três camadas independentes de proteção.
 ## 1. Arquitetura
 
 O ESP32 publica pela rede Wi-Fi para um broker Mosquitto rodando em Docker.
-Os serviços `broker`, `subscriber` e `device-simulator` compartilham uma rede
-Docker privada (`mqttnet`); apenas a porta MQTT/TLS (`8883`) do broker é
-exposta à rede local, para o ESP32 alcançar.
+Os serviços `broker`, `subscriber`, `device-simulator` e `attacker`
+compartilham uma rede Docker privada (`mqttnet`); apenas a porta MQTT/TLS
+(`8883`) do broker é exposta à rede local, para o ESP32 alcançar.
 
 Além do ESP32 físico, um serviço `device-simulator` publica dados de N
 dispositivos simulados (cada um em sua própria thread, assinando os dados do
 mesmo jeito que o firmware real), útil para testar o `subscriber` e o broker
 sob carga sem depender de hardware.
+
+Um serviço `attacker` simula um cliente comprometido com credenciais MQTT
+válidas: intercepta as mensagens de todos os outros publishers e tenta
+reenviá-las adulteradas, forjadas e repetidas (replay) ao `subscriber`, para
+demonstrar na prática que TLS + usuário/senha + ACL, por si só, não bastam
+sem o HMAC (e sem controle de sequência contra replay).
 
 Três camadas de segurança, independentes entre si:
 
@@ -27,7 +33,7 @@ Três camadas de segurança, independentes entre si:
 ## 2. Estrutura do repositório
 
 ```
-compose.yaml                  # serviços broker + subscriber + device-simulator
+compose.yaml                  # serviços broker + subscriber + device-simulator + attacker
 setup.sh                      # gera certificados, credenciais e chave HMAC
 .env                           # UID/GID do host e SIM_DEVICE_COUNT (gerado, não versionado)
 mosquitto/
@@ -38,12 +44,16 @@ mosquitto/
   data/, log/                 # persistência e logs do Mosquitto
 subscriber/
   Dockerfile, requirements.txt
-  subscriber.py                # valida HMAC e mostra teste de adulteração
+  subscriber.py                # valida HMAC, bloqueia replay e mostra teste de adulteração
   .env                          # gerado por setup.sh (não versionado)
 simulator/
   Dockerfile, requirements.txt
   simulator.py                  # N dispositivos simulados, 1 thread por dispositivo
   .env                           # gerado por setup.sh (não versionado)
+attacker/
+  Dockerfile, requirements.txt
+  attacker.py                   # intercepta e tenta tamper/forjar/repetir mensagens
+  .env                           # gerado por setup.sh (não versionado, sem a chave HMAC real)
 esp32/
   esp32.ino                    # firmware (WiFi + TLS + HMAC-SHA256 via mbedtls)
   secrets.h.example             # modelo de referência
@@ -68,11 +78,12 @@ Supondo `192.168.1.50`, na raiz do projeto:
 O script gera:
 
 - CA própria e certificado TLS do broker com SAN para esse IP;
-- três usuários MQTT (`esp32-01` e `simulator` para publicar,
-  `subscriber` para assinar), com senhas aleatórias;
+- quatro usuários MQTT (`esp32-01` e `simulator` para publicar,
+  `subscriber` para assinar, `attacker` com ACL deliberadamente ampla para
+  o laboratório de ataque), com senhas aleatórias;
 - uma chave HMAC-SHA256 aleatória (32 bytes), compartilhada entre o firmware
   do ESP32 (`esp32/secrets.h`), o simulador (`simulator/.env`) e o consumidor
-  (`subscriber/.env`) — o broker nunca a recebe.
+  (`subscriber/.env`) — o broker e o `attacker` nunca a recebem.
 
 Edite o SSID e a senha do Wi-Fi em `esp32/secrets.h` (gerado pelo script).
 
@@ -124,7 +135,41 @@ SIM_DEVICE_COUNT=20
 SIM_DEVICE_COUNT=20 docker compose up -d
 ```
 
-## 5. Cuidados com a rede
+## 5. Agente malicioso (`attacker`)
+
+O serviço `attacker` simula um cliente que já comprometeu um dispositivo com
+credenciais MQTT válidas e uma ACL ampla (`sensors/#`, leitura e escrita —
+veja `mosquitto/config/acl.conf`). Ele se conecta normalmente via TLS,
+assina e intercepta todas as mensagens publicadas por `esp32-01` e pelo
+`device-simulator`, e para cada mensagem interceptada tenta três ataques,
+publicando de volta no mesmo tópico da vítima:
+
+1. **Adulteração (tamper)** — altera a temperatura mas mantém o HMAC
+   original, que não corresponde mais ao novo conteúdo.
+2. **Forjar leitura** — cria uma leitura inteiramente falsa para o mesmo
+   dispositivo, assinada com uma chave HMAC própria e aleatória (o atacante
+   nunca recebe a chave real — veja `attacker/.env`).
+3. **Replay** — reenvia, sem nenhuma alteração, o payload original já
+   capturado (HMAC válido, porque é bit a bit idêntico ao original).
+
+Os dois primeiros ataques são sempre rejeitados pela verificação de HMAC do
+`subscriber.py`. O terceiro **não seria pego pelo HMAC isoladamente** — por
+isso o `subscriber.py` também guarda o maior número de sequência (`seq`) já
+aceito por dispositivo e rejeita qualquer `seq` repetido ou menor:
+
+```
+[REJEITADA] device=esp32-sim-01 seq=2 - HMAC invalido              <- tamper
+[REJEITADA] device=esp32-sim-01 seq=1000002 - HMAC invalido        <- forjado
+[REJEITADA] device=esp32-sim-01 seq=2 - replay ou fora de ordem (ultimo aceito: 2)  <- replay
+[VALIDA] device=esp32-sim-01 seq=3
+```
+
+A ACL do usuário `attacker` é intencionalmente permissiva — representa o
+pior caso (cliente totalmente comprometido) para provar que a defesa real
+está na camada de aplicação (HMAC + sequência), não apenas no broker. Nunca
+reproduza essa ACL fora deste laboratório.
+
+## 6. Cuidados com a rede
 
 - O ESP32 deve acessar o **IP** do computador que hospeda o Docker — nunca
   `localhost` nem o IP interno de um container. A rede Wi-Fi precisa permitir
@@ -135,7 +180,7 @@ SIM_DEVICE_COUNT=20 docker compose up -d
 - O firmware carrega a CA correspondente (`esp32/ca_cert.h`) e valida o
   certificado do broker — a validação criptográfica não é desabilitada.
 
-## 6. Modelo de assinatura HMAC
+## 7. Modelo de assinatura HMAC
 
 O ESP32 assina a string `"<device>|<seq>|<temperatura>"` (temperatura já
 formatada com duas casas decimais) usando HMAC-SHA256 com a chave
