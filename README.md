@@ -189,7 +189,10 @@ reproduza essa ACL fora deste laboratório.
 
 Abra **http://localhost:8080** depois de subir os containers. O painel é um
 container próprio (`dashboard`) com backend Flask + MQTT e um frontend web,
-pensado para ser visual e fácil de usar:
+pensado para ser visual e fácil de usar. O botão de ligar/desligar o atacante
+fica sempre visível no topo, e o conteúdo é dividido em duas abas.
+
+**Aba Monitor:**
 
 - **Toggle do atacante** — um botão liga/desliga o agente malicioso em tempo
   real. Quando ativo, aparece um alerta vermelho no topo (`ATACANTE ATIVO`).
@@ -199,6 +202,17 @@ pensado para ser visual e fácil de usar:
   último `seq` e um indicador verde/vermelho do último veredito.
 - **Eventos ao vivo** — uma lista rolante, colorida por tipo, mostrando cada
   mensagem recebida e o motivo de aceitação ou rejeição.
+
+**Aba Topologia:**
+
+Um diagrama SVG animado da rede simulada. Os dispositivos aparecem à esquerda,
+o broker ao centro e o subscriber/dashboard à direita; o atacante fica embaixo
+e acende em vermelho quando ativo. A cada mensagem recebida, um pacote viaja
+pela topologia: **verde** para telemetria válida (dispositivo → broker →
+subscriber) e **vermelho/roxo/laranja** para os ataques injetados pelo atacante
+(atacante → broker), que terminam em um flash vermelho de rejeição no
+subscriber. Ligue o atacante e troque para esta aba para ver os ataques sendo
+barrados em tempo real.
 
 Como funciona por baixo: o backend assina MQTT (`sensors/#`), refaz a mesma
 validação HMAC + sequência do `subscriber` e transmite cada veredito ao
