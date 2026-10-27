@@ -1,0 +1,37 @@
+{
+  "version": 4,
+  "configurations": [
+    {
+      "name": "ESP32 (Arduino)",
+      "compilerPath": "${env:HOME}/.arduino15/packages/esp32/tools/esp-x32/2601/bin/xtensa-esp32-elf-g++",
+      "intelliSenseMode": "linux-gcc-x86",
+      "cStandard": "gnu17",
+      "cppStandard": "gnu++20",
+      "forcedInclude": [
+        "${env:HOME}/.arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/Arduino.h"
+      ],
+      "includePath": [
+        "${workspaceFolder}/esp32",
+        "${workspaceFolder}/esp32_oled",
+        "${env:HOME}/.arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32",
+        "${env:HOME}/.arduino15/packages/esp32/hardware/esp32/3.3.12/variants/esp32",
+        "${env:HOME}/.arduino15/packages/esp32/hardware/esp32/3.3.12/libraries/*/src",
+        "${env:HOME}/.arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/**",
+        "${env:HOME}/.arduino15/packages/esp32/tools/esp32-libs/3.3.12/qio_qspi/include",
+        "${env:HOME}/Arduino/libraries/*",
+        "${env:HOME}/Arduino/libraries/*/src"
+      ],
+      "defines": [
+        "ARDUINO=10607",
+        "ARDUINO_ESP32_DEV",
+        "ARDUINO_ARCH_ESP32",
+        "ESP32",
+        "ESP_PLATFORM",
+        "F_CPU=240000000L",
+        "CORE_DEBUG_LEVEL=0",
+        "MBEDTLS_CONFIG_FILE=\"mbedtls/esp_config.h\"",
+        "_GNU_SOURCE"
+      ]
+    }
+  ]
+}

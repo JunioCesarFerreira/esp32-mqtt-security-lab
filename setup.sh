@@ -15,6 +15,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CERTS_DIR="$ROOT_DIR/mosquitto/certs"
 CONFIG_DIR="$ROOT_DIR/mosquitto/config"
 ESP32_DIR="$ROOT_DIR/esp32"
+ESP32_OLED_DIR="$ROOT_DIR/esp32_oled"
 SUBSCRIBER_DIR="$ROOT_DIR/subscriber"
 SIMULATOR_DIR="$ROOT_DIR/simulator"
 ATTACKER_DIR="$ROOT_DIR/attacker"
@@ -31,7 +32,7 @@ MQTT_DASHBOARD_USER="dashboard"
 HOST_UID="$(id -u)"
 HOST_GID="$(id -g)"
 
-mkdir -p "$CERTS_DIR" "$CONFIG_DIR" "$ESP32_DIR" "$SUBSCRIBER_DIR" "$SIMULATOR_DIR" "$ATTACKER_DIR" "$DASHBOARD_DIR"
+mkdir -p "$CERTS_DIR" "$CONFIG_DIR" "$ESP32_DIR" "$ESP32_OLED_DIR" "$SUBSCRIBER_DIR" "$SIMULATOR_DIR" "$ATTACKER_DIR" "$DASHBOARD_DIR"
 
 echo "==> Escrevendo $ROOT_DIR/.env (UID/GID do host, nº de dispositivos e porta do painel)"
 cat > "$ROOT_DIR/.env" <<EOF
@@ -168,9 +169,15 @@ echo "==> Escrevendo $ESP32_DIR/ca_cert.h"
   echo ")EOF2\";"
 } > "$ESP32_DIR/ca_cert.h"
 
+# A variante com display OLED usa as mesmas credenciais (mesmo dispositivo)
+echo "==> Copiando secrets.h e ca_cert.h para $ESP32_OLED_DIR"
+cp "$ESP32_DIR/secrets.h" "$ESP32_DIR/ca_cert.h" "$ESP32_OLED_DIR/"
+
 echo
 echo "Setup concluído."
 echo "  1. Edite $ESP32_DIR/secrets.h com o SSID/senha do Wi-Fi"
+echo "     (ou $ESP32_OLED_DIR/secrets.h, se for usar a variante com display OLED)"
 echo "  2. docker compose up -d --build"
 echo "  3. Abra o painel em http://localhost:8080 para monitorar e ativar o atacante"
 echo "  4. Grave esp32/esp32.ino no ESP32 (Arduino IDE + biblioteca PubSubClient)"
+echo "     ou esp32_oled/esp32_oled.ino (+ bibliotecas Adafruit SSD1306 e GFX)"

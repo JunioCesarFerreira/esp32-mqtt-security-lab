@@ -15,6 +15,11 @@ dashboard/.env
 
 esp32/secrets.h
 esp32/ca_cert.h
+esp32_oled/secrets.h
+esp32_oled/ca_cert.h
+.build/
+# Binários do Arduino IDE ("Exportar binário compilado") embutem o secrets.h
+*/build/
 
 .DS_Store
 __pycache__/

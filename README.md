@@ -40,6 +40,7 @@ Três camadas de segurança, independentes entre si:
 ```
 compose.yaml                  # broker + subscriber + device-simulator + attacker + dashboard
 setup.sh                      # gera certificados, credenciais e chave HMAC
+flash.sh                      # compila e grava o firmware no ESP32 (arduino-cli)
 .env                           # UID/GID, SIM_DEVICE_COUNT, DASHBOARD_PORT (gerado, não versionado)
 mosquitto/
   config/mosquitto.conf       # listener TLS, auth, ACL
@@ -68,6 +69,9 @@ esp32/
   esp32.ino                    # firmware (WiFi + TLS + HMAC-SHA256 via mbedtls)
   secrets.h.example             # modelo de referência
   secrets.h, ca_cert.h          # gerados por setup.sh (não versionados)
+esp32_oled/
+  esp32_oled.ino                # variante do firmware com display OLED SSD1306 (I2C)
+  secrets.h, ca_cert.h          # cópias geradas por setup.sh (não versionadas)
 ```
 
 ## 3. Como executar
@@ -111,6 +115,19 @@ em tempo real e tem um botão para ligar/desligar o atacante (veja a seção 5).
 No Arduino IDE, abra `esp32/esp32.ino`, instale a biblioteca `PubSubClient`,
 selecione sua placa ESP32 e grave o firmware.
 
+Ou, pelo terminal, use `./flash.sh`: ele instala o `arduino-cli`, o core
+ESP32 e as bibliotecas se faltarem, confere o `secrets.h` (Wi-Fi configurado
+e `MQTT_HOST` igual ao IP deste computador), compila e grava. Se o seu usuário
+não tiver acesso à porta serial (grupo `dialout`), a gravação roda num
+container Docker com acesso à porta.
+
+```bash
+./flash.sh esp32_oled -m   # grava a variante com display e abre o monitor serial
+./flash.sh esp32           # grava o firmware original
+./flash.sh -M              # só o monitor serial
+./flash.sh -h              # todas as opções
+```
+
 Para acompanhar as mensagens validadas também pelo terminal:
 
 ```bash
@@ -130,6 +147,41 @@ REJEITADA
 O firmware inicialmente gera temperaturas simuladas, sem depender de sensor
 físico. Depois, basta substituir `readSimulatedTemperature()` pela leitura
 de um DHT22, DS18B20 ou outro sensor real.
+
+### Variante com display OLED (SSD1306)
+
+`esp32_oled/esp32_oled.ino` é o mesmo firmware (TLS + usuário/senha + HMAC),
+com um display OLED SSD1306 128x64 no barramento I2C. O display mostra a
+temperatura, a umidade, o `seq` atual e se a última publicação MQTT deu certo;
+durante a inicialização, mostra o progresso da conexão Wi-Fi e MQTT. Sem um
+sensor DHT, temperatura e umidade são geradas aleatoriamente
+(`readSimulatedTemperature()` e `readSimulatedHumidity()`).
+
+A mensagem MQTT é idêntica à do firmware original — só a temperatura é
+publicada e assinada —, então `subscriber`, `dashboard` e `attacker`
+funcionam sem nenhuma alteração. A umidade aparece apenas no display.
+
+Ligação (pinos I2C padrão do ESP32):
+
+| OLED | ESP32   |
+|------|---------|
+| VCC  | 3V3     |
+| GND  | GND     |
+| SDA  | GPIO 21 |
+| SCL  | GPIO 22 |
+
+Bibliotecas (Library Manager): `PubSubClient` e `Adafruit SSD1306` (que
+instala junto a `Adafruit GFX Library`). Se o display não acender, troque
+`OLED_ADDR` de `0x3C` para `0x3D`; se ele não for encontrado, o firmware segue
+publicando normalmente, sem display.
+
+O `setup.sh` copia `secrets.h` e `ca_cert.h` também para `esp32_oled/`. Se
+você já rodou o `setup.sh` antes desta variante existir, basta copiá-los à mão
+(não rode o script de novo, ou ele regenera todas as credenciais):
+
+```bash
+cp esp32/secrets.h esp32/ca_cert.h esp32_oled/
+```
 
 ## 4. Simulador de dispositivos
 
