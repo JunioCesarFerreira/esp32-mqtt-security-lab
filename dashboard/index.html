@@ -149,7 +149,7 @@
   .badge.forged { background: rgba(188,140,255,.15); color: var(--purple); }
   .badge.replay { background: rgba(210,153,34,.15); color: var(--orange); }
   .badge.DESCARTADA { background: rgba(139,148,158,.15); color: var(--muted); }
-  .row .dev { color: var(--text); flex: none; min-width: 112px; }
+  .row .rdev { color: var(--text); flex: none; min-width: 112px; }
   .row .detail { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .legend { display: flex; gap: 16px; flex-wrap: wrap; color: var(--muted); font-size: 12px; margin-top: 8px; }
@@ -164,15 +164,20 @@
   .edge.hot { stroke: var(--accent); }
   .edge.attack.hot { stroke: var(--red); }
   .node circle { stroke-width: 2; transition: filter .2s; }
-  .node.broker circle { fill: rgba(31,111,235,.22); stroke: var(--accent); }
-  .node.sub circle { fill: rgba(63,185,80,.16); stroke: var(--green); }
-  .node.dash circle { fill: rgba(88,166,255,.14); stroke: var(--accent); }
-  .node.attacker circle { fill: rgba(248,81,73,.14); stroke: var(--red); }
-  .node.dev circle { fill: rgba(139,148,158,.14); stroke: var(--muted); }
+  /* preenchimentos opacos: as arestas não devem aparecer através dos nós */
+  .node.broker circle { fill: #182e4e; stroke: var(--accent); }
+  .node.sub circle { fill: #1d3429; stroke: var(--green); }
+  .node.dash circle { fill: #1f2f41; stroke: var(--accent); }
+  .node.attacker circle { fill: #362327; stroke: var(--red); }
+  .node.dev circle { fill: #262c33; stroke: var(--muted); }
   .node .nlabel { fill: var(--text); font-size: 12px; text-anchor: middle; font-weight: 700; }
   .node .nsub { fill: var(--muted); font-size: 10px; text-anchor: middle; }
-  .node .icon { font-size: 18px; text-anchor: middle; dominant-baseline: central; }
-  .node.attacker.active circle { fill: rgba(248,81,73,.4); filter: drop-shadow(0 0 7px var(--red)); }
+  .node .dlabel { fill: var(--muted); font-size: 10px; text-anchor: start; dominant-baseline: central; }
+  .node .icon { fill: var(--text); font-size: 18px; text-anchor: middle; dominant-baseline: central; }
+  .node .nlabel, .node .nsub, .node .dlabel {
+    paint-order: stroke; stroke: var(--panel); stroke-width: 5px; stroke-linejoin: round;
+  }
+  .node.attacker.active circle { fill: #703132; filter: drop-shadow(0 0 7px var(--red)); }
   .node.pulse-green circle { filter: drop-shadow(0 0 8px var(--green)); }
   .node.pulse-red circle { filter: drop-shadow(0 0 8px var(--red)); }
   .node.pulse-blue circle { filter: drop-shadow(0 0 8px var(--accent)); }
@@ -356,7 +361,8 @@
     const ok = ev.status === "VALIDA";
     card.querySelector(".dev-dot").className = "dev-dot " + (ok ? "valid" : "bad");
     if (ok && ev.temp != null) card.querySelector(".dev-temp").textContent = Number(ev.temp).toFixed(2) + " °C";
-    card.querySelector(".dev-meta").textContent = "seq " + (ev.seq ?? "—") + " · " + ev.status.toLowerCase();
+    const statusLabel = { VALIDA: "válida", REJEITADA: "rejeitada", DESCARTADA: "descartada" }[ev.status] || ev.status;
+    card.querySelector(".dev-meta").textContent = "seq " + (ev.seq ?? "—") + " · " + statusLabel;
   }
 
   function addRow(cls, time, badge, dev, detail) {
@@ -366,10 +372,10 @@
     row.innerHTML =
       '<span class="time"></span>' +
       (badge ? '<span class="badge ' + badge.cls + '"></span>' : "") +
-      '<span class="dev"></span><span class="detail"></span>';
+      '<span class="rdev"></span><span class="detail"></span>';
     row.querySelector(".time").textContent = time;
     if (badge) row.querySelector(".badge").textContent = badge.text;
-    row.querySelector(".dev").textContent = dev;
+    row.querySelector(".rdev").textContent = dev;
     row.querySelector(".detail").textContent = detail;
     feed.insertBefore(row, feed.firstChild);
     while (feed.childElementCount > MAX_ROWS) feed.removeChild(feed.lastChild);
@@ -394,7 +400,8 @@
      TOPOLOGIA — SVG animado
      ======================================================= */
   const NODES = {
-    broker:     { x: 410, y: 258, r: 36, label: "BROKER", sub: "Mosquitto · TLS 8883", cls: "broker", icon: "🔒" },
+    // rótulo acima: a aresta do atacante desce do broker e cruzaria um rótulo embaixo
+    broker:     { x: 410, y: 258, r: 36, label: "BROKER", sub: "Mosquitto · TLS 8883", cls: "broker", icon: "🔒", labelAbove: true },
     subscriber: { x: 702, y: 150, r: 28, label: "SUBSCRIBER", sub: "valida HMAC", cls: "sub", icon: "✓" },
     dashboard:  { x: 702, y: 300, r: 26, label: "DASHBOARD", sub: "monitor", cls: "dash", icon: "📊" },
     attacker:   { x: 410, y: 474, r: 30, label: "ATACANTE", sub: "inativo", cls: "attacker", icon: "☠" },
@@ -414,10 +421,12 @@
     const icon = mkEl("text", { x: cfg.x, y: cfg.y, class: "icon" });
     icon.textContent = cfg.icon;
     g.appendChild(icon);
-    const lab = mkEl("text", { x: cfg.x, y: cfg.y + cfg.r + 15, class: "nlabel" });
+    const labY = cfg.labelAbove ? cfg.y - cfg.r - 22 : cfg.y + cfg.r + 15;
+    const subY = cfg.labelAbove ? cfg.y - cfg.r - 8 : cfg.y + cfg.r + 29;
+    const lab = mkEl("text", { x: cfg.x, y: labY, class: "nlabel" });
     lab.textContent = cfg.label;
     g.appendChild(lab);
-    const sub = mkEl("text", { x: cfg.x, y: cfg.y + cfg.r + 29, class: "nsub" });
+    const sub = mkEl("text", { x: cfg.x, y: subY, class: "nsub" });
     sub.textContent = cfg.sub;
     g.appendChild(sub);
     $("nodes").appendChild(g);
@@ -462,10 +471,9 @@
       d.g.querySelector("circle").setAttribute("cx", d.x);
       d.g.querySelector("circle").setAttribute("cy", d.y);
       d.g.querySelector("circle").setAttribute("r", d.r);
-      const lab = d.g.querySelector(".nsub");
+      const lab = d.g.querySelector(".dlabel");
       lab.setAttribute("x", d.x + d.r + 6);
-      lab.setAttribute("y", d.y + 4);
-      lab.setAttribute("text-anchor", "start");
+      lab.setAttribute("y", d.y);
       lab.textContent = showLabel ? id.replace(/^esp32-?/, "") : "";
       setEdge(d.edge, d, NODES.broker);
     });
@@ -476,8 +484,7 @@
     const edge = createEdge();
     const g = mkEl("g", { class: "node dev" });
     g.appendChild(mkEl("circle", { cx: 0, cy: 0, r: 12 }));
-    const sub = mkEl("text", { class: "nsub" });
-    g.appendChild(sub);
+    g.appendChild(mkEl("text", { class: "dlabel" }));
     const title = mkEl("title");
     title.textContent = id;
     g.appendChild(title);
