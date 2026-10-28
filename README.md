@@ -285,6 +285,8 @@ DASHBOARD_PORT=8088
 DASHBOARD_PORT=8088 docker compose up -d
 ```
 
+![Painel MQTT nas abas Monitor e Topologia, com telemetria válida e ataques simulados](./dashboard/demo.gif)
+
 ## 7. Cuidados com a rede
 
 - O ESP32 deve acessar o **IP** do computador que hospeda o Docker — nunca
